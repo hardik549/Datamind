@@ -59,36 +59,41 @@ export const appRouter = router({
     });
 
     if (!dbUser) throw new TRPCError({ code: "UNAUTHORIZED" });
+    try {
+      const subscriptionPlan = await getUserSubscriptionPlan();
 
-    const subscriptionPlan = await getUserSubscriptionPlan();
+      if (subscriptionPlan.isSubscribed && dbUser.stripeCustomerId) {
+        const stripeSession = await stripe.billingPortal.sessions.create({
+          customer: dbUser.stripeCustomerId,
+          return_url: billingUrl,
+        });
 
-    if (subscriptionPlan.isSubscribed && dbUser.stripeCustomerId) {
-      const stripeSession = await stripe.billingPortal.sessions.create({
-        customer: dbUser.stripeCustomerId,
-        return_url: billingUrl,
-      });
+        return { url: stripeSession.url };
+      }
 
-      return { url: stripeSession.url };
-    }
-
-    const stripeSession = await stripe.checkout.sessions.create({
-      success_url: billingUrl,
-      cancel_url: billingUrl,
-      payment_method_types: ["card", "paypal"],
-      mode: "subscription",
-      billing_address_collection: "auto",
-      line_items: [
-        {
-          price: PLANS.find((plan) => plan.name === "Pro")?.price.priceIds.test,
-          quantity: 1,
+      const stripeSession = await stripe.checkout.sessions.create({
+        success_url: billingUrl,
+        cancel_url: billingUrl,
+        payment_method_types: ["card", "paypal"],
+        mode: "subscription",
+        billing_address_collection: "auto",
+        line_items: [
+          {
+            price: PLANS.find((plan) => plan.name === "Pro")?.price.priceIds
+              .test,
+            quantity: 1,
+          },
+        ],
+        metadata: {
+          userId: userId,
         },
-      ],
-      metadata: {
-        userId: userId,
-      },
-    });
-
-    return { url: stripeSession.url };
+      });
+      console.log(stripeSession);
+      return { url: stripeSession.url };
+    } catch (error) {
+      console.log(error);
+      throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
+    }
   }),
 
   getFileMessages: privateProcedure
